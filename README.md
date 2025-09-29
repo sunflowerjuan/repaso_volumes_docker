@@ -161,5 +161,123 @@ networks:
     driver: bridge
   red_externa:
     external: true
+```
 
+## TRAEFIK
+
+Es un reverse proxy y load balancer moderno que:
+
+Se integra automáticamente con Docker (descubre contenedores y los enruta).
+
+Gestiona certificados SSL/TLS (Let's Encrypt).
+
+Soporta middlewares (autenticación, redirección, rate limit, etc.).
+
+### COMO INSTANCIAR?
+
+```bash
+version: "3.9"
+
+services:
+  traefik:
+    image: traefik:v2.11         # Imagen oficial
+    container_name: traefik
+    command:
+      - "--api.insecure=true"    # Dashboard (solo en dev)
+      - "--providers.docker=true" # Descubre servicios de Docker
+      - "--entrypoints.web.address=:80"  # Puerto 80
+      - "--entrypoints.websecure.address=:443" # Puerto 443
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080" # Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Permite a Traefik leer contenedores
+```
+
+### COMMAND DE TRAEFIK
+
+```bash
+--api.insecure=true         # Activa dashboard sin auth
+--api.dashboard=true        # Activa dashboard
+--providers.docker=true     # Activa integración con Docker
+--entrypoints.web.address=:80     # Define entrada HTTP
+--entrypoints.websecure.address=:443 # Define entrada HTTPS
+--certificatesresolvers.le.acme.email=tu@correo.com   # Let's Encrypt
+--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+--certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+```
+
+#### POR ARCHIVO DE CONFIGURACION ESTATICA
+
+Archivo `traefik.yml` en lugar de command
+
+```bash
+api:
+  dashboard: true
+
+providers:
+  docker: {}
+
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+```
+
+y montarlo asi:
+
+```bash
+volumes:
+  - ./traefik.yml:/etc/traefik/traefik.yml
+```
+
+### LABELS EN LOS SERVICIOS
+
+Router: define cómo se recibe una petición (rule, entrypoint).
+
+Service: define a dónde se envía la petición (backend/puerto).
+
+Middleware: transforma la petición (auth, redirect, etc.).
+
+```bash
+services:
+  app:
+    image: nginx
+    labels:
+      - "traefik.enable=true"                           # Habilita Traefik para este contenedor
+      - "traefik.http.routers.app.rule=Host(`app.local`)" # Define dominio
+      - "traefik.http.routers.app.entrypoints=web"      # Puerto/entrypoint
+      - "traefik.http.services.app.loadbalancer.server.port=80" # Puerto interno del contenedor
+```
+
+#### MIDLEWARES
+
+Los middlewares son filtros o reglas adicionales para routers.
+Se definen en labels y luego se asignan.
+
+- Auth basica:
+
+```bash
+labels:
+  - "traefik.http.middlewares.auth.basicauth.users=user:$$apr1$$C9F...hashedPassword"
+  - "traefik.http.routers.app.middlewares=auth"
+```
+
+- Rate limit:
+
+```bash
+    labels:
+    - "traefik.http.middlewares.ratelimit.ratelimit.average=100"
+    - "traefik.http.middlewares.ratelimit.ratelimit.burst=50"
+    - "traefik.http.routers.app.middlewares=ratelimit"
+```
+
+- Strip prefix:
+
+```bash
+    labels:
+    - "traefik.http.middlewares.stripprefix.stripprefix.prefixes=/api"
+    - "traefik.http.routers.app.middlewares=stripprefix"
 ```
